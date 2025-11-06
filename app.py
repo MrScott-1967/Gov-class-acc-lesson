@@ -43,6 +43,8 @@ if "gathering_info" not in st.session_state:
     st.session_state.gathering_info = True
 if "final_project" not in st.session_state:
     st.session_state.final_project = None
+if "initial_prompt_sent" not in st.session_state:
+    st.session_state.initial_prompt_sent = False
 
 # Acts list
 acts = [
@@ -93,6 +95,7 @@ with st.sidebar:
             st.session_state.gathering_info = True
             st.session_state.chat_history = []
             st.session_state.final_project = None
+            st.session_state.initial_prompt_sent = False
             st.rerun()
         else:
             st.warning("Please select both an act and project type first!")
@@ -108,31 +111,49 @@ if st.session_state.act and st.session_state.project_type and st.session_state.s
     
     # If gathering info, chat mode
     if st.session_state.gathering_info:
-        # User input
-        if prompt := st.chat_input("Type your answer here (or say 'done' when ready for the final project!):"):
-            st.session_state.chat_history.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-            
-            # Generate AI response
+        # Auto-send initial prompt if not yet sent
+        if not st.session_state.initial_prompt_sent and len(st.session_state.chat_history) == 0:
             with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    messages = [{"role": "system", "content": st.session_state.system_prompt}] + st.session_state.chat_history
+                with st.spinner("Getting started..."):
+                    messages = [{"role": "system", "content": st.session_state.system_prompt}]
                     response = client.chat.completions.create(
                         model="grok-4-latest",  # Updated to latest model
                         messages=messages,
                         max_tokens=300,
                         temperature=0.7
                     )
-                    ai_reply = response.choices[0].message.content
-                    st.markdown(ai_reply)
-                    st.session_state.chat_history.append({"role": "assistant", "content": ai_reply})
-                    
-                    # Check if done (simple keyword check; improve with better logic if needed)
-                    if any(word in prompt.lower() for word in ["done", "finish", "ready"]):
-                        st.session_state.gathering_info = False
-                        # Trigger final generation in next rerun
-                        st.rerun()
+                    initial_reply = response.choices[0].message.content
+                    st.markdown(initial_reply)
+                    st.session_state.chat_history.append({"role": "assistant", "content": initial_reply})
+                    st.session_state.initial_prompt_sent = True
+                    st.rerun()  # Rerun to update display
+        
+        # User input (only show if initial sent or history has content)
+        if st.session_state.initial_prompt_sent or len(st.session_state.chat_history) > 0:
+            if prompt := st.chat_input("Type your answer here (or say 'done' when ready for the final project!):"):
+                st.session_state.chat_history.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+                
+                # Generate AI response
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        messages = [{"role": "system", "content": st.session_state.system_prompt}] + st.session_state.chat_history
+                        response = client.chat.completions.create(
+                            model="grok-4-latest",  # Updated to latest model
+                            messages=messages,
+                            max_tokens=300,
+                            temperature=0.7
+                        )
+                        ai_reply = response.choices[0].message.content
+                        st.markdown(ai_reply)
+                        st.session_state.chat_history.append({"role": "assistant", "content": ai_reply})
+                        
+                        # Check if done (simple keyword check; improve with better logic if needed)
+                        if any(word in prompt.lower() for word in ["done", "finish", "ready"]):
+                            st.session_state.gathering_info = False
+                            # Trigger final generation in next rerun
+                            st.rerun()
     
     # Final project generation
     elif not st.session_state.final_project:
@@ -160,7 +181,7 @@ if st.session_state.act and st.session_state.project_type and st.session_state.s
         
         # Reset button
         if st.button("Create Another Project"):
-            for key in ["act", "project_type", "chat_history", "system_prompt", "gathering_info", "final_project"]:
+            for key in ["act", "project_type", "chat_history", "system_prompt", "gathering_info", "final_project", "initial_prompt_sent"]:
                 del st.session_state[key]
             st.rerun()
 else:
