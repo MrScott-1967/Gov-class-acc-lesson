@@ -100,6 +100,20 @@ with st.sidebar:
         else:
             st.warning("Please select both an act and project type first!")
 
+# Helper function to call API with error handling
+def call_grok(messages, max_tokens=300, temperature=0.7):
+    try:
+        response = client.chat.completions.create(
+            model="grok-4-latest",
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        st.error(f"Oops! Something went wrong with the AI: {str(e)}. Try again or say 'done' to finish.")
+        return "Sorry, I need a moment. Let's try that again—what's your next idea?"
+
 # Main chat interface
 if st.session_state.act and st.session_state.project_type and st.session_state.system_prompt:
     st.header(f"Creating a {st.session_state.project_type.lower()} about the {st.session_state.act}")
@@ -116,13 +130,7 @@ if st.session_state.act and st.session_state.project_type and st.session_state.s
             with st.chat_message("assistant"):
                 with st.spinner("Getting started..."):
                     messages = [{"role": "system", "content": st.session_state.system_prompt}]
-                    response = client.chat.completions.create(
-                        model="grok-4-latest",  # Updated to latest model
-                        messages=messages,
-                        max_tokens=300,
-                        temperature=0.7
-                    )
-                    initial_reply = response.choices[0].message.content
+                    initial_reply = call_grok(messages)
                     st.markdown(initial_reply)
                     st.session_state.chat_history.append({"role": "assistant", "content": initial_reply})
                     st.session_state.initial_prompt_sent = True
@@ -139,34 +147,28 @@ if st.session_state.act and st.session_state.project_type and st.session_state.s
                 with st.chat_message("assistant"):
                     with st.spinner("Thinking..."):
                         messages = [{"role": "system", "content": st.session_state.system_prompt}] + st.session_state.chat_history
-                        response = client.chat.completions.create(
-                            model="grok-4-latest",  # Updated to latest model
-                            messages=messages,
-                            max_tokens=300,
-                            temperature=0.7
-                        )
-                        ai_reply = response.choices[0].message.content
+                        ai_reply = call_grok(messages, max_tokens=300, temperature=0.7)
                         st.markdown(ai_reply)
                         st.session_state.chat_history.append({"role": "assistant", "content": ai_reply})
                         
-                        # Check if done (simple keyword check; improve with better logic if needed)
-                        if any(word in prompt.lower() for word in ["done", "finish", "ready"]):
+                        # Improved check for done (more keywords, case-insensitive)
+                        done_keywords = ["done", "finish", "ready", "complete", "that's it", "stop", "all set"]
+                        if any(keyword in prompt.lower() for keyword in done_keywords):
                             st.session_state.gathering_info = False
                             # Trigger final generation in next rerun
                             st.rerun()
     
     # Final project generation
     elif not st.session_state.final_project:
+        st.info("Generating your final project... This might take a moment!")
         with st.spinner("Putting it all together!"):
-            messages = [{"role": "system", "content": st.session_state.system_prompt + "\n\nNow, using all the info from our chat, generate the final project."}] + st.session_state.chat_history
-            response = client.chat.completions.create(
-                model="grok-4-latest",  # Updated to latest model
-                messages=messages,
-                max_tokens=800,
-                temperature=0.5
-            )
-            final_output = response.choices[0].message.content
-            st.session_state.final_project = final_output
+            try:
+                messages = [{"role": "system", "content": st.session_state.system_prompt + "\n\nNow, using all the info from our chat, generate the final project."}] + st.session_state.chat_history
+                final_output = call_grok(messages, max_tokens=1000, temperature=0.5)  # Increased tokens for completeness
+                st.session_state.final_project = final_output
+            except Exception as e:
+                st.error(f"Final generation hit a snag: {str(e)}. Here's a quick summary based on our chat: {st.session_state.chat_history[-1]['content'][:500]}... Try restarting the project!")
+                st.session_state.final_project = "Project generation paused—let's try again! Your ideas so far: " + "\n".join([msg['content'][:100] + "..." for msg in st.session_state.chat_history[-3:]])
         
         st.subheader("Your Finished Project! 🎉")
         st.markdown(st.session_state.final_project)
